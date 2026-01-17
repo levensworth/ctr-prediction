@@ -11,5 +11,6 @@ wheels/
 
 # notebooks
 .ipynb_checkpoints/
+__marimo__/
 
 data/
