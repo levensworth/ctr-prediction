@@ -50,6 +50,7 @@ def _():
     5. **Promoted Item Type** - one-hot encoded
     6. **Temporal Features** - day of week, hour bucket (morning/mid-day/night), month
     7. **Target Audience** - one-hot encoded for target_gender and target_incomes
+    8. **Publication Clusters** - one-hot encoded clusters from mean post embeddings (Qwen3-Embedding-0.6B)
 
     ## Training Strategy
     - **Historical train/test split**: Train on older data, test on last year of data
@@ -83,21 +84,33 @@ def _(mo):
 @app.cell
 def _(Path, Tuple, pl):
     def load_datasets(data_dir: Path) -> Tuple:
-        """Load all required datasets."""
-        return (
-            pl.read_csv(data_dir / "placements.csv"),
-            pl.read_csv(data_dir / "campaigns.csv"),
-            pl.read_csv(data_dir / "publication_tags.csv"),
-        )
+        """Load all required datasets including publication clusters."""
+        placements = pl.read_csv(data_dir / "placements.csv")
+        campaigns = pl.read_csv(data_dir / "campaigns.csv")
+        publication_tags = pl.read_csv(data_dir / "publication_tags.csv")
+        
+        # Load publication clusters from clustering analysis
+        clusters_path = data_dir / "publication_clusters.csv"
+        if clusters_path.exists():
+            publication_clusters = pl.read_csv(clusters_path)
+            print(f"Publication clusters loaded: {len(publication_clusters):,} publications")
+        else:
+            publication_clusters = None
+            print("Warning: publication_clusters.csv not found. Run publication_clustering.py first.")
+        
+        return placements, campaigns, publication_tags, publication_clusters
 
     DATA_DIR = Path("../data")
-    raw_placements, raw_campaigns, raw_publication_tags = load_datasets(DATA_DIR)
+    raw_placements, raw_campaigns, raw_publication_tags, raw_publication_clusters = load_datasets(DATA_DIR)
 
     print("=== Data Shapes ===")
     print(f"Placements: {raw_placements.shape}")
     print(f"Campaigns: {raw_campaigns.shape}")
     print(f"Publication tags: {raw_publication_tags.shape}")
-    return DATA_DIR, raw_campaigns, raw_placements, raw_publication_tags
+    if raw_publication_clusters is not None:
+        print(f"Publication clusters: {raw_publication_clusters.shape}")
+        print(f"Unique clusters: {raw_publication_clusters['cluster'].n_unique()}")
+    return DATA_DIR, raw_campaigns, raw_placements, raw_publication_clusters, raw_publication_tags
 
 
 @app.cell
@@ -237,7 +250,57 @@ def _(pl, train_placements):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3.3 TF-IDF Features from Publication Tags
+    ### 3.3 Publication Cluster Features
+    
+    Use cluster assignments from the publication clustering analysis (based on mean post embeddings).
+    Clusters are one-hot encoded to capture different publication segments.
+    """)
+    return
+
+
+@app.cell
+def _(pl, raw_publication_clusters):
+    def build_cluster_features(clusters_df: pl.DataFrame | None) -> pl.DataFrame | None:
+        """Build one-hot encoded cluster features from publication clusters."""
+        if clusters_df is None:
+            return None
+        
+        # Get unique cluster values
+        unique_clusters = sorted(clusters_df["cluster"].unique().to_list())
+        n_clusters = len(unique_clusters)
+        print(f"Building one-hot encoding for {n_clusters} clusters")
+        
+        # Create one-hot encoded columns for each cluster
+        cluster_cols = []
+        for cluster_id in unique_clusters:
+            col_name = f"cluster_{cluster_id}"
+            cluster_cols.append(
+                (pl.col("cluster") == cluster_id).cast(pl.Int8).alias(col_name)
+            )
+        
+        # Select publication_id and add one-hot columns
+        result = clusters_df.select([
+            "publication_id",
+            "cluster",  # Keep original cluster for potential ordinal use
+        ]).with_columns(cluster_cols)
+        
+        return result
+
+    cluster_features = build_cluster_features(raw_publication_clusters)
+    
+    if cluster_features is not None:
+        print(f"Cluster features shape: {cluster_features.shape}")
+        print(f"Cluster columns: {[c for c in cluster_features.columns if c.startswith('cluster_')]}")
+        print(cluster_features.head(5))
+    else:
+        print("No cluster features available")
+    return (cluster_features,)
+
+
+@app.cell
+def _(mo):
+    mo.md("""
+    ### 3.5 TF-IDF Features from Publication Tags
     """)
     return
 
@@ -289,7 +352,7 @@ def _(TfidfVectorizer, Tuple, pl, raw_publication_tags):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3.4 One-Hot Encoding for Categorical Features
+    ### 3.6 One-Hot Encoding for Categorical Features
 
     - Target Gender
     - Promoted Item Type
@@ -350,7 +413,7 @@ def _(pl, raw_campaigns):
 @app.cell
 def _(mo):
     mo.md("""
-    ### 3.5 Temporal Features
+    ### 3.7 Temporal Features
 
     - Day of week (one-hot)
     - Hour bucket: morning (6-11), mid-day (12-17), night (18-5)
@@ -408,12 +471,13 @@ def _(
     add_temporal_features,
     campaign_ctr_stats,
     campaign_features,
+    cluster_features,
     pl,
     publication_audience,
     tfidf_features,
 ):
     def build_feature_matrix(placements_df: pl.DataFrame) -> pl.DataFrame:
-        """Build complete feature matrix by joining all features."""
+        """Build complete feature matrix by joining all features including publication clusters."""
         # Add temporal features
         df = add_temporal_features(placements_df)
 
@@ -454,6 +518,16 @@ def _(
 
         # Join TF-IDF features
         df = df.join(tfidf_features, on="publication_id", how="left")
+
+        # Join publication cluster features (if available)
+        if cluster_features is not None:
+            df = df.join(cluster_features, on="publication_id", how="left")
+            # Fill nulls for cluster columns (publications without cluster assignment)
+            for col in [c for c in df.columns if c.startswith("cluster_")]:
+                df = df.with_columns(pl.col(col).fill_null(0))
+            # Fill null for the raw cluster column with -1 (unknown cluster)
+            if "cluster" in df.columns:
+                df = df.with_columns(pl.col("cluster").fill_null(-1))
 
         # Fill nulls for numeric columns
         numeric_fill_cols = [
@@ -510,7 +584,7 @@ def _(mo):
 @app.cell
 def _(train_features):
     def get_feature_columns(df_columns: list) -> list:
-        """Get the list of feature columns for model training."""
+        """Get the list of feature columns for model training including cluster features."""
         base_features = [
             # Campaign CTR stats (rolling 3-month)
             "campaign_ctr_mean", "campaign_ctr_std", "campaign_ctr_count", "campaign_weighted_ctr",
@@ -539,14 +613,26 @@ def _(train_features):
 
         # Add TF-IDF columns
         tfidf_cols = [c for c in df_columns if c.startswith("tfidf_")]
+        
+        # Add publication cluster one-hot columns
+        cluster_cols = sorted([c for c in df_columns if c.startswith("cluster_")])
 
         # Filter to only existing columns
-        all_features = base_features + tfidf_cols
+        all_features = base_features + tfidf_cols + cluster_cols
         return [c for c in all_features if c in df_columns]
 
     feature_cols = get_feature_columns(train_features.columns)
+    
+    # Print feature breakdown
+    tfidf_count = len([c for c in feature_cols if c.startswith("tfidf_")])
+    cluster_count = len([c for c in feature_cols if c.startswith("cluster_")])
+    base_count = len(feature_cols) - tfidf_count - cluster_count
+    
     print(f"Total features: {len(feature_cols)}")
-    print(f"\nFeatures: {feature_cols}")
+    print(f"  - Base features: {base_count}")
+    print(f"  - TF-IDF features: {tfidf_count}")
+    print(f"  - Cluster features: {cluster_count}")
+    print(f"\nCluster features: {[c for c in feature_cols if c.startswith('cluster_')]}")
     return (feature_cols,)
 
 
@@ -1202,8 +1288,9 @@ def _(
 
     1. **Two-Model Ensemble**: Using separate models for small vs large audiences captures different CTR dynamics
     2. **Historical Features**: Rolling 3-month window for campaign and publication statistics
-    3. **Rich Feature Set**: Includes TF-IDF content features, temporal features, and targeting features
-    4. **Audience-Specific Patterns**: Different features may be important for different audience sizes
+    3. **Rich Feature Set**: Includes TF-IDF content features, temporal features, targeting features, and publication clusters
+    4. **Publication Clusters**: Embedding-based clusters capture content similarity patterns across publications
+    5. **Audience-Specific Patterns**: Different features may be important for different audience sizes
     """
 
     mo.md(format_summary())
