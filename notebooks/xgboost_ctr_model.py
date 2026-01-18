@@ -87,25 +87,22 @@ def _(Path, pl):
     print(f"Publication tags: {publication_tags_df.shape}")
 
     placements_df.head(5)
-    return (
-        DATA_DIR,
-        advertisers_df,
-        campaigns_df,
-        placements_df,
-        publication_mets_df,
-        publication_tags_df,
-    )
+    return DATA_DIR, campaigns_df, placements_df, publication_tags_df
 
 
 @app.cell
 def _(pl, placements_df):
     # Calculate CTR and parse datetime
+    ctr_raw = pl.col("approved_clicks") / pl.col("approved_opens")
+
     placements_with_ctr = placements_df.with_columns([
-        (pl.col("approved_clicks") / pl.col("approved_opens")).alias("ctr"),
+        pl.when(pl.col("approved_opens") > 0)
+          .then(pl.min_horizontal(ctr_raw, pl.lit(1.0)))
+          .otherwise(0)
+          .alias("ctr"),
+
         pl.col("post_send_at").str.to_datetime().alias("send_datetime")
-    ]).filter(
-        pl.col("approved_opens") > 0  # Avoid division by zero
-    )
+    ])
 
     print(f"Placements with CTR: {len(placements_with_ctr):,}")
     print(f"Date range: {placements_with_ctr['send_datetime'].min()} to {placements_with_ctr['send_datetime'].max()}")
@@ -388,68 +385,67 @@ def _(mo):
 
 
 @app.cell
-def _(advertisers_df, np, pl, publication_mets_df, publication_tags_df):
-    from sentence_transformers import SentenceTransformer
+def _():
+    # from sentence_transformers import SentenceTransformer
 
-    # Load sentence transformer model
-    print("Loading Sentence Transformer model...")
-    embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+    # # Load sentence transformer model
+    # print("Loading Sentence Transformer model...")
+    # embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
 
-    # Prepare advertiser text for embeddings
-    advertiser_text = advertisers_df.with_columns(
-        pl.concat_str([
-            pl.col("name").fill_null(""),
-            pl.lit(": "),
-            pl.col("description").fill_null("")
-        ]).alias("text_for_embedding")
-    ).select(["advertiser_id", "text_for_embedding"])
+    # # Prepare advertiser text for embeddings
+    # advertiser_text = advertisers_df.with_columns(
+    #     pl.concat_str([
+    #         pl.col("name").fill_null(""),
+    #         pl.lit(": "),
+    #         pl.col("description").fill_null("")
+    #     ]).alias("text_for_embedding")
+    # ).select(["advertiser_id", "text_for_embedding"])
 
-    # Prepare publication text for embeddings
-    publication_text = publication_mets_df.join(
-        publication_tags_df.select(["publication_id", "tags"]),
-        on="publication_id",
-        how="left"
-    ).with_columns(
-        pl.concat_str([
-            pl.col("name").fill_null(""),
-            pl.lit(". Tags: "),
-            pl.col("tags").fill_null("").str.replace_all(r"[\{\}']", ""),
-            pl.lit(". "),
-            pl.col("description").fill_null("")
-        ]).alias("text_for_embedding")
-    ).select(["publication_id", "text_for_embedding"])
+    # # Prepare publication text for embeddings
+    # publication_text = publication_mets_df.join(
+    #     publication_tags_df.select(["publication_id", "tags"]),
+    #     on="publication_id",
+    #     how="left"
+    # ).with_columns(
+    #     pl.concat_str([
+    #         pl.col("name").fill_null(""),
+    #         pl.lit(". Tags: "),
+    #         pl.col("tags").fill_null("").str.replace_all(r"[\{\}']", ""),
+    #         pl.lit(". "),
+    #         pl.col("description").fill_null("")
+    #     ]).alias("text_for_embedding")
+    # ).select(["publication_id", "text_for_embedding"])
 
-    print(f"Advertisers to embed: {len(advertiser_text)}")
-    print(f"Publications to embed: {len(publication_text)}")
+    # print(f"Advertisers to embed: {len(advertiser_text)}")
+    # print(f"Publications to embed: {len(publication_text)}")
 
-    # Generate embeddings
-    print("\nGenerating advertiser embeddings...")
-    advertiser_texts = advertiser_text["text_for_embedding"].to_list()
-    advertiser_ids = advertiser_text["advertiser_id"].to_list()
-    advertiser_embeddings = embedding_model.encode(advertiser_texts, show_progress_bar=True)
+    # # Generate embeddings
+    # print("\nGenerating advertiser embeddings...")
+    # advertiser_texts = advertiser_text["text_for_embedding"].to_list()
+    # advertiser_ids = advertiser_text["advertiser_id"].to_list()
+    # advertiser_embeddings = embedding_model.encode(advertiser_texts, show_progress_bar=True)
 
-    print("Generating publication embeddings...")
-    publication_texts = publication_text["text_for_embedding"].to_list()
-    publication_ids_emb = publication_text["publication_id"].to_list()
-    publication_embeddings = embedding_model.encode(publication_texts, show_progress_bar=True)
+    # print("Generating publication embeddings...")
+    # publication_texts = publication_text["text_for_embedding"].to_list()
+    # publication_ids_emb = publication_text["publication_id"].to_list()
+    # publication_embeddings = embedding_model.encode(publication_texts, show_progress_bar=True)
 
-    # Compute L2 norms and create lookup dictionaries
-    # Using norm as a proxy for "information richness" of the text
-    advertiser_norm_dict = {
-        aid: float(np.linalg.norm(emb)) 
-        for aid, emb in zip(advertiser_ids, advertiser_embeddings)
-    }
-    publication_norm_dict = {
-        pid: float(np.linalg.norm(emb)) 
-        for pid, emb in zip(publication_ids_emb, publication_embeddings)
-    }
+    # # Compute L2 norms and create lookup dictionaries
+    # # Using norm as a proxy for "information richness" of the text
+    # advertiser_norm_dict = {
+    #     aid: float(np.linalg.norm(emb)) 
+    #     for aid, emb in zip(advertiser_ids, advertiser_embeddings)
+    # }
+    # publication_norm_dict = {
+    #     pid: float(np.linalg.norm(emb)) 
+    #     for pid, emb in zip(publication_ids_emb, publication_embeddings)
+    # }
 
-    print(f"\nAdvertiser embedding norms computed: {len(advertiser_norm_dict)}")
-    print(f"Publication embedding norms computed: {len(publication_norm_dict)}")
-    print(f"Advertiser norm range: [{min(advertiser_norm_dict.values()):.4f}, {max(advertiser_norm_dict.values()):.4f}]")
-    print(f"Publication norm range: [{min(publication_norm_dict.values()):.4f}, {max(publication_norm_dict.values()):.4f}]")
-
-    return advertiser_norm_dict, publication_norm_dict
+    # print(f"\nAdvertiser embedding norms computed: {len(advertiser_norm_dict)}")
+    # print(f"Publication embedding norms computed: {len(publication_norm_dict)}")
+    # print(f"Advertiser norm range: [{min(advertiser_norm_dict.values()):.4f}, {max(advertiser_norm_dict.values()):.4f}]")
+    # print(f"Publication norm range: [{min(publication_norm_dict.values()):.4f}, {max(publication_norm_dict.values()):.4f}]")
+    return
 
 
 @app.cell
@@ -1075,6 +1071,11 @@ def _(DATA_DIR, model):
     model_path = DATA_DIR / "xgboost_ctr_model.json"
     model.save_model(str(model_path))
     print(f"Model saved to: {model_path}")
+    return
+
+
+@app.cell
+def _():
     return
 
 
