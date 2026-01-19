@@ -24,7 +24,9 @@ from src.features.feature_engineering import (
 from src.feature_store.feature_store import ParquetFeatureStore
 from src.metrics.metrics import compute_all_metrics, create_standard_metrics, compute_baseline_metrics
 from src.models.xgboost_ensemble import XGBoostEnsembleModel
+from src.pipelines.config import PipelineConfig, load_config, get_default_config, PathsConfig
 
+    
 
 @dataclass
 class TrainingPipeline:
@@ -200,28 +202,81 @@ def load_training_data(data_dir: Path) -> tuple[pl.DataFrame, pl.DataFrame, pl.D
 
 
 def run_training(
-    data_dir: Path,
-    output_dir: Path,
+    data_dir: Path | None = None,
+    output_dir: Path | None = None,
     model_config: ModelConfig | None = None,
     training_config: TrainingConfig | None = None,
+    config_path: Path | str | None = None,
 ) -> tuple[XGBoostEnsembleModel, EvaluationResult]:
     """Convenience function to run the complete training pipeline.
     
     Args:
-        data_dir: Path to data directory
-        output_dir: Path for saving outputs
-        model_config: Optional model configuration
-        training_config: Optional training configuration
+        data_dir: Path to data directory (overrides config if provided)
+        output_dir: Path for saving outputs (overrides config if provided)
+        model_config: Optional model configuration (overrides config if provided)
+        training_config: Optional training configuration (overrides config if provided)
+        config_path: Path to YAML configuration file
     
     Returns:
         Tuple of (trained model, evaluation results)
     """
-    placements, campaigns, tags, clusters = load_training_data(data_dir)
+    config = _resolve_config(config_path, data_dir, output_dir)
+    
+    final_model_config = model_config if model_config else config.to_domain_model_config()
+    final_training_config = training_config if training_config else config.to_domain_training_config()
+    
+    placements, campaigns, tags, clusters = load_training_data(config.paths.data_dir)
     
     pipeline = TrainingPipeline(
-        output_dir=output_dir,
-        model_config=model_config or ModelConfig(),
-        training_config=training_config or TrainingConfig(),
+        output_dir=config.paths.output_dir,
+        model_config=final_model_config,
+        training_config=final_training_config,
     )
     
     return pipeline.run(placements, campaigns, tags, clusters)
+
+
+def run_training_from_config(
+    config_path: Path | str = "pipeline_config.yml",
+) -> tuple[XGBoostEnsembleModel, EvaluationResult]:
+    """Run training pipeline using configuration from YAML file.
+    
+    Args:
+        config_path: Path to YAML configuration file
+    
+    Returns:
+        Tuple of (trained model, evaluation results)
+    """
+    return run_training(config_path=config_path)
+
+
+def _resolve_config(
+    config_path: Path | str | None,
+    data_dir: Path | None,
+    output_dir: Path | None,
+) -> PipelineConfig:
+    """Load configuration and apply path overrides."""
+    
+    
+    if config_path is not None:
+        config = load_config(config_path)
+    else:
+        config = get_default_config()
+    
+    if data_dir is not None or output_dir is not None:
+        paths = PathsConfig(
+            data_dir=data_dir if data_dir else config.paths.data_dir,
+            output_dir=output_dir if output_dir else config.paths.output_dir,
+            model_dir=config.paths.model_dir,
+            feature_store_dir=config.paths.feature_store_dir,
+            feature_engineer_path=config.paths.feature_engineer_path,
+        )
+        config = PipelineConfig(
+            paths=paths,
+            model=config.model,
+            training=config.training,
+            evaluation=config.evaluation,
+            prediction=config.prediction,
+        )
+    
+    return config

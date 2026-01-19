@@ -1,0 +1,37 @@
+# Data paths
+paths:
+  data_dir: "data"
+  output_dir: "artifacts"
+  model_dir: "artifacts/model"
+  feature_store_dir: "artifacts/features"
+  feature_engineer_path: "artifacts/feature_engineer.pkl"
+
+# Model hyperparameters (XGBoost)
+model:
+  max_depth: 6
+  learning_rate: 0.1
+  n_estimators: 200
+  subsample: 0.8
+  colsample_bytree: 0.8
+  min_child_weight: 5
+  reg_alpha: 0.1
+  reg_lambda: 1.0
+  random_state: 42
+  objective: "reg:squarederror"
+
+# Training configuration
+training:
+  test_split_days: 90
+  rolling_window_days: 90
+  audience_threshold: 1000
+  tfidf_max_features: 50
+  tfidf_min_df: 5
+
+# Evaluation settings
+evaluation:
+  test_feature_set: "test_features"
+  train_feature_set: "train_features"
+
+# Prediction settings  
+prediction:
+  default_feature_set: "prediction_features"
