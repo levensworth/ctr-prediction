@@ -6,15 +6,15 @@ a trained model and pre-computed features from a feature store.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import polars as pl
 
-from src.domain.entities import FeatureVector, PredictionResult
+from src.domain.entities import PredictionResult
 from src.feature_store.feature_store import ParquetFeatureStore
 from src.features.feature_engineering import CTRFeatureEngineer
 from src.models.xgboost_ensemble import XGBoostEnsembleModel
+from src.pipelines.config import load_config
 
 
 @dataclass
@@ -206,7 +206,8 @@ class PredictionPipeline:
 
 
 def create_prediction_pipeline(
-    artifacts_dir: Path,
+    artifacts_dir: Path | None = None,
+    config_path: Path | str | None = None,
 ) -> PredictionPipeline:
     """Create and load a prediction pipeline from training artifacts.
     
@@ -214,15 +215,41 @@ def create_prediction_pipeline(
     directory structure created by TrainingPipeline.
     
     Args:
-        artifacts_dir: Path to directory containing model and features
+        artifacts_dir: Path to directory containing model and features (overrides config)
+        config_path: Path to YAML configuration file
     
     Returns:
         Loaded PredictionPipeline ready for inference
     """
-    artifacts_dir = Path(artifacts_dir)
+    if config_path is not None:
+        config = load_config(config_path)
+        model_path = config.paths.model_dir
+        feature_store_path = config.paths.feature_store_dir
+        feature_engineer_path = config.paths.feature_engineer_path
+    elif artifacts_dir is not None:
+        artifacts_dir = Path(artifacts_dir)
+        model_path = artifacts_dir / "model"
+        feature_store_path = artifacts_dir / "features"
+        feature_engineer_path = artifacts_dir / "feature_engineer.pkl"
+    else:
+        raise ValueError("Either artifacts_dir or config_path must be provided")
     
     return PredictionPipeline(
-        model_path=artifacts_dir / "model",
-        feature_store_path=artifacts_dir / "features",
-        feature_engineer_path=artifacts_dir / "feature_engineer.pkl",
+        model_path=model_path,
+        feature_store_path=feature_store_path,
+        feature_engineer_path=feature_engineer_path,
     ).load()
+
+
+def create_prediction_pipeline_from_config(
+    config_path: Path | str = "pipeline_config.yml",
+) -> PredictionPipeline:
+    """Create prediction pipeline using configuration from YAML file.
+    
+    Args:
+        config_path: Path to YAML configuration file
+    
+    Returns:
+        Loaded PredictionPipeline ready for inference
+    """
+    return create_prediction_pipeline(config_path=config_path)

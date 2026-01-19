@@ -13,12 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-import polars as pl
+
 
 from src.domain.entities import EvaluationResult
 from src.domain.protocols import IMetric
 from src.feature_store.feature_store import ParquetFeatureStore
-from src.features.feature_engineering import prepare_model_data, split_by_audience
+from src.features.feature_engineering import prepare_model_data
 from src.metrics.metrics import (
     compute_all_metrics,
     compute_baseline_metrics,
@@ -26,6 +26,7 @@ from src.metrics.metrics import (
     create_standard_metrics,
 )
 from src.models.xgboost_ensemble import XGBoostEnsembleModel
+from src.pipelines.config import load_config
 
 
 @dataclass
@@ -321,26 +322,53 @@ class EvaluationPipeline:
 
 
 def run_evaluation(
-    artifacts_dir: Path,
-    test_feature_set: str = "test_features",
+    artifacts_dir: Path | None = None,
+    test_feature_set: str | None = None,
+    config_path: Path | str | None = None,
 ) -> EvaluationResult:
     """Convenience function to run evaluation from saved artifacts.
     
     Args:
-        artifacts_dir: Path to training artifacts directory
-        test_feature_set: Name of test features in feature store
+        artifacts_dir: Path to training artifacts directory (overrides config)
+        test_feature_set: Name of test features in feature store (overrides config)
+        config_path: Path to YAML configuration file
     
     Returns:
         EvaluationResult
     """
-    artifacts_dir = Path(artifacts_dir)
+    if config_path is not None:
+        config = load_config(config_path)
+        model_path = config.paths.model_dir
+        feature_store_path = config.paths.feature_store_dir
+        feature_set = test_feature_set or config.evaluation.test_feature_set
+    elif artifacts_dir is not None:
+        artifacts_dir = Path(artifacts_dir)
+        model_path = artifacts_dir / "model"
+        feature_store_path = artifacts_dir / "features"
+        feature_set = test_feature_set or "test_features"
+    else:
+        raise ValueError("Either artifacts_dir or config_path must be provided")
     
     pipeline = EvaluationPipeline(
-        model_path=artifacts_dir / "model",
-        feature_store_path=artifacts_dir / "features",
+        model_path=model_path,
+        feature_store_path=feature_store_path,
     ).load()
     
-    feature_store = ParquetFeatureStore(artifacts_dir / "features")
-    feature_columns = feature_store.get_feature_columns(test_feature_set)
+    feature_store = ParquetFeatureStore(feature_store_path)
+    feature_columns = feature_store.get_feature_columns(feature_set)
     
-    return pipeline.evaluate_from_feature_store(test_feature_set, feature_columns)
+    return pipeline.evaluate_from_feature_store(feature_set, feature_columns)
+
+
+def run_evaluation_from_config(
+    config_path: Path | str = "pipeline_config.yml",
+) -> EvaluationResult:
+    """Run evaluation using configuration from YAML file.
+    
+    Args:
+        config_path: Path to YAML configuration file
+    
+    Returns:
+        EvaluationResult
+    """
+    return run_evaluation(config_path=config_path)
