@@ -29,20 +29,24 @@ def invoke(request: InvokeRequest) -> InvokeResponse:
     start_time = time.perf_counter()
 
     predictions: list[PredictionOutput] = []
-    errors: list[str] = []
+    
+    # TODO: maybe have a special endpoint for single predictions?
+    # errors: list[str] = []
 
-    for idx, input_data in enumerate(request.data):
-        try:
-            prediction = service.predict_single(input_data)
-            predictions.append(prediction)
-        except ValueError as e:
-            errors.append(f"Item {idx}: {str(e)}")
+    # for idx, input_data in enumerate(request.data):
+    #     try:
+    #         prediction = service.predict_single(input_data)
+    #         predictions.append(prediction)
+    #     except ValueError as e:
+    #         errors.append(f"Item {idx}: {str(e)}")
 
-    if errors and not predictions:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No predictions could be generated: {'; '.join(errors)}",
-        )
+    # if errors and not predictions:
+    #     raise HTTPException(
+    #         status_code=404,
+    #         detail=f"No predictions could be generated: {'; '.join(errors)}",
+    #     )
+
+    predictions = service.predict_batch(request.data)
 
     elapsed_seconds = time.perf_counter() - start_time
 

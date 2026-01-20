@@ -34,5 +34,5 @@ class CTRPredictionService:
         return [PredictionOutput(
             estimated_ctr=prediction.predicted_ctr,
             model_id=prediction.model_version or "unknown",
-        ) for prediction in predictions]
+        ) for prediction, _, _ in predictions]
 
