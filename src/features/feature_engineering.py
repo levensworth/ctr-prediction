@@ -19,6 +19,62 @@ import polars as pl
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 
+# Publisher-specific feature columns (keyed by publication_id)
+PUBLISHER_NUMERICAL_FEATURES = [
+    "pub_avg_opens",
+    "pub_std_opens",
+    "pub_ctr_mean",
+    "pub_placement_count",
+]
+
+PUBLISHER_CATEGORICAL_FEATURES: list[str] = []  # cluster_* columns are added dynamically
+
+# Campaign-specific feature columns (keyed by campaign_id)
+CAMPAIGN_NUMERICAL_FEATURES = [
+    "campaign_ctr_mean",
+    "campaign_ctr_std",
+    "campaign_ctr_count",
+    "campaign_weighted_ctr",
+    "num_income_targets",
+    "num_age_targets",
+]
+
+CAMPAIGN_CATEGORICAL_FEATURES = [
+    "gender_no_pref",
+    "gender_balanced",
+    "gender_male",
+    "gender_female",
+    "gender_unknown",
+    "item_product",
+    "item_service",
+    "item_newsletter",
+    "item_knowledge",
+    "item_event",
+    "item_other",
+    "item_unknown",
+    "income_range_1",
+    "income_range_2",
+    "income_range_3",
+    "income_range_4",
+    "income_range_5",
+]
+
+# Temporal features (per-placement, not per entity)
+TEMPORAL_FEATURES = [
+    "month",
+    "hour_morning",
+    "hour_midday",
+    "hour_night",
+    "dow_mon",
+    "dow_tue",
+    "dow_wed",
+    "dow_thu",
+    "dow_fri",
+    "dow_sat",
+    "dow_sun",
+]
+
+
 @dataclass
 class CTRFeatureEngineer:
     """Feature engineering for CTR prediction models.
@@ -94,6 +150,45 @@ class CTRFeatureEngineer:
     def get_feature_columns(self) -> list[str]:
         """Return the list of feature column names."""
         return self._feature_columns.copy()
+
+    def get_publisher_feature_columns(self) -> tuple[list[str], list[str]]:
+        """Return publisher feature columns split into numerical and categorical.
+        
+        Returns:
+            Tuple of (numerical_columns, categorical_columns)
+        """
+        numerical = PUBLISHER_NUMERICAL_FEATURES.copy()
+        categorical = PUBLISHER_CATEGORICAL_FEATURES.copy()
+        
+        # Add TF-IDF columns as numerical
+        if self._tfidf_features is not None:
+            tfidf_cols = [c for c in self._tfidf_features.columns if c.startswith("tfidf_")]
+            numerical.extend(tfidf_cols)
+        
+        # Add cluster columns as categorical
+        if self._cluster_features is not None:
+            cluster_cols = [c for c in self._cluster_features.columns if c.startswith("cluster_")]
+            categorical.extend(cluster_cols)
+        
+        return numerical, categorical
+
+    def get_campaign_feature_columns(self) -> tuple[list[str], list[str]]:
+        """Return campaign feature columns split into numerical and categorical.
+        
+        Returns:
+            Tuple of (numerical_columns, categorical_columns)
+        """
+        return CAMPAIGN_NUMERICAL_FEATURES.copy(), CAMPAIGN_CATEGORICAL_FEATURES.copy()
+
+    def get_all_publisher_feature_columns(self) -> list[str]:
+        """Return all publisher feature column names."""
+        numerical, categorical = self.get_publisher_feature_columns()
+        return numerical + categorical
+
+    def get_all_campaign_feature_columns(self) -> list[str]:
+        """Return all campaign feature column names."""
+        numerical, categorical = self.get_campaign_feature_columns()
+        return numerical + categorical
 
     def save(self, path: Path) -> None:
         """Save fitted state to disk."""

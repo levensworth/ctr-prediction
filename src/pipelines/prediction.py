@@ -2,9 +2,14 @@
 
 Provides a simple interface for making CTR predictions using
 a trained model and pre-computed features from a feature store.
+
+Supports imputation for unseen publication_id or campaign_id:
+- Mean imputation for numerical features
+- Mode imputation for categorical features
 """
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -12,7 +17,7 @@ import polars as pl
 
 from src.domain.entities import PredictionResult
 from src.feature_store.feature_store import ParquetFeatureStore
-from src.features.feature_engineering import CTRFeatureEngineer
+from src.features.feature_engineering import CTRFeatureEngineer, TEMPORAL_FEATURES
 from src.models.xgboost_ensemble import XGBoostEnsembleModel
 from src.pipelines.config import load_config
 
@@ -111,6 +116,111 @@ class PredictionPipeline:
             model_version=self._model.model_name,
         )
 
+    def predict_with_imputation(
+        self,
+        publication_id: str,
+        campaign_id: str,
+        prediction_time: datetime | None = None,
+        default_opens: int = 1000,
+    ) -> tuple[PredictionResult, bool, bool]:
+        """Generate CTR prediction with imputation for unseen entities.
+        
+        Uses imputation statistics (mean for numerical, mode for categorical)
+        when encountering unseen publication_id or campaign_id.
+        
+        Args:
+            publication_id: Publication identifier
+            campaign_id: Campaign identifier
+            prediction_time: Time for temporal features (defaults to now)
+            default_opens: Default approved_opens for model selection
+        
+        Returns:
+            Tuple of (PredictionResult, publisher_was_imputed, campaign_was_imputed)
+        
+        Raises:
+            RuntimeError: If pipeline not loaded
+        """
+        if not self._is_loaded:
+            raise RuntimeError("Pipeline must be loaded before prediction")
+        
+        # Get temporal features
+        temporal_features = self._compute_temporal_features(prediction_time)
+        
+        # Build ordered feature vector from publisher + campaign + temporal
+        feature_vector, pub_imputed, camp_imputed = (
+            self._feature_store.get_features_for_prediction_with_imputation(
+                publication_id,
+                campaign_id,
+                self._feature_columns,
+                default_opens,
+            )
+        )
+        
+        # Override temporal features in the feature vector
+        features_dict = dict(zip(feature_vector.feature_names, feature_vector.features))
+        features_dict.update(temporal_features)
+        
+        final_features = np.array([
+            features_dict.get(col, 0.0) for col in self._feature_columns
+        ], dtype=np.float64)
+        
+        predicted_ctr = self._model.predict_single(
+            final_features,
+            approved_opens=default_opens,
+        )
+        
+        return (
+            PredictionResult(
+                publication_id=publication_id,
+                campaign_id=campaign_id,
+                predicted_ctr=predicted_ctr,
+                model_version=self._model.model_name,
+            ),
+            pub_imputed,
+            camp_imputed,
+        )
+
+    def _compute_temporal_features(
+        self,
+        prediction_time: datetime | None = None,
+    ) -> dict[str, float]:
+        """Compute temporal features for a given time.
+        
+        Args:
+            prediction_time: Time to compute features for (defaults to now)
+        
+        Returns:
+            Dictionary of temporal feature names to values
+        """
+        if prediction_time is None:
+            prediction_time = datetime.now()
+        
+        hour = prediction_time.hour
+        weekday = prediction_time.weekday()
+        month = prediction_time.month
+        
+        # Hour bucket
+        if 6 <= hour <= 11:
+            hour_bucket = "morning"
+        elif 12 <= hour <= 17:
+            hour_bucket = "midday"
+        else:
+            hour_bucket = "night"
+        
+        return {
+            "month": float(month),
+            "hour_morning": 1.0 if hour_bucket == "morning" else 0.0,
+            "hour_midday": 1.0 if hour_bucket == "midday" else 0.0,
+            "hour_night": 1.0 if hour_bucket == "night" else 0.0,
+            "dow_mon": 1.0 if weekday == 0 else 0.0,
+            "dow_tue": 1.0 if weekday == 1 else 0.0,
+            "dow_wed": 1.0 if weekday == 2 else 0.0,
+            "dow_thu": 1.0 if weekday == 3 else 0.0,
+            "dow_fri": 1.0 if weekday == 4 else 0.0,
+            "dow_sat": 1.0 if weekday == 5 else 0.0,
+            "dow_sun": 1.0 if weekday == 6 else 0.0,
+        }
+
     def predict_from_features(
         self,
         features: np.ndarray,
@@ -168,6 +278,37 @@ class PredictionPipeline:
                 results.append(result)
             except ValueError:
                 results.append(None)
+        
+        return results
+
+    def predict_batch_with_imputation(
+        self,
+        requests: list[tuple[str, str]],
+        prediction_time: datetime | None = None,
+        default_opens: int = 1000,
+    ) -> list[tuple[PredictionResult, bool, bool]]:
+        """Generate predictions for multiple pairs with imputation support.
+        
+        Unlike predict_batch, this method never returns None - it always
+        provides a prediction by using imputation for unseen entities.
+        
+        Args:
+            requests: List of (publication_id, campaign_id) tuples
+            prediction_time: Time for temporal features (defaults to now)
+            default_opens: Default approved_opens for model selection
+        
+        Returns:
+            List of (PredictionResult, pub_imputed, camp_imputed) for each request
+        """
+        if not self._is_loaded:
+            raise RuntimeError("Pipeline must be loaded before prediction")
+        
+        results = []
+        for pub_id, camp_id in requests:
+            result, pub_imputed, camp_imputed = self.predict_with_imputation(
+                pub_id, camp_id, prediction_time, default_opens
+            )
+            results.append((result, pub_imputed, camp_imputed))
         
         return results
 

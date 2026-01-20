@@ -113,3 +113,23 @@ class TrainingConfig:
     audience_threshold: int = 1000
     tfidf_max_features: int = 50
     tfidf_min_df: int = 5
+
+
+@dataclass
+class ImputationStatistics:
+    """Statistics for imputing missing feature values.
+    
+    For unseen publication_id or campaign_id, we use:
+    - mean for numerical features
+    - mode for categorical (one-hot encoded) features
+    """
+    numerical_means: dict[str, float]
+    categorical_modes: dict[str, int]
+    
+    def get_imputed_value(self, feature_name: str) -> float | int:
+        """Get the imputed value for a feature."""
+        if feature_name in self.numerical_means:
+            return self.numerical_means[feature_name]
+        if feature_name in self.categorical_modes:
+            return self.categorical_modes[feature_name]
+        return 0.0

@@ -1,5 +1,19 @@
 """Feature engineering module."""
 
-from .feature_engineering import CTRFeatureEngineer
+from .feature_engineering import (
+    CTRFeatureEngineer,
+    PUBLISHER_NUMERICAL_FEATURES,
+    PUBLISHER_CATEGORICAL_FEATURES,
+    CAMPAIGN_NUMERICAL_FEATURES,
+    CAMPAIGN_CATEGORICAL_FEATURES,
+    TEMPORAL_FEATURES,
+)
 
-__all__ = ["CTRFeatureEngineer"]
+__all__ = [
+    "CTRFeatureEngineer",
+    "PUBLISHER_NUMERICAL_FEATURES",
+    "PUBLISHER_CATEGORICAL_FEATURES",
+    "CAMPAIGN_NUMERICAL_FEATURES",
+    "CAMPAIGN_CATEGORICAL_FEATURES",
+    "TEMPORAL_FEATURES",
+]

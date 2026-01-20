@@ -17,10 +17,9 @@ class CTRPredictionService:
         publication_id = str(input_data.publication_id)
         campaign_id = str(input_data.campaign_id)
 
-        result = self._pipeline.predict(
+        result, _, _ = self._pipeline.predict_with_imputation(
             publication_id=publication_id,
             campaign_id=campaign_id,
-            feature_set_name=self._feature_set_name,
         )
 
         return PredictionOutput(
@@ -31,7 +30,7 @@ class CTRPredictionService:
     def predict_batch(self, inputs: list[PredictionInput]) -> list[PredictionOutput]:
         """Generate predictions for multiple publication-campaign pairs."""
         requests = [(str(input.publication_id), str(input.campaign_id)) for input in inputs]
-        predictions = self._pipeline.predict_batch(requests, self._feature_set_name)
+        predictions = self._pipeline.predict_batch_with_imputation(requests)
         return [PredictionOutput(
             estimated_ctr=prediction.predicted_ctr,
             model_id=prediction.model_version or "unknown",

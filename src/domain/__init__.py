@@ -9,6 +9,7 @@ from .entities import (
     EvaluationResult,
     ModelConfig,
     TrainingConfig,
+    ImputationStatistics,
 )
 
 from .protocols import (
@@ -27,6 +28,7 @@ __all__ = [
     "EvaluationResult",
     "ModelConfig",
     "TrainingConfig",
+    "ImputationStatistics",
     "IModel",
     "IFeatureStore",
     "IFeatureEngineer",

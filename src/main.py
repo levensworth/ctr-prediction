@@ -106,24 +106,44 @@ def predict(args: argparse.Namespace) -> None:
     print(f"Loading model from {artifacts_dir}")
     pipeline = create_prediction_pipeline(artifacts_dir=artifacts_dir)
     
-    try:
-        result = pipeline.predict(
+    # Use imputation mode if requested or as fallback
+    if args.use_imputation:
+        result, pub_imputed, camp_imputed = pipeline.predict_with_imputation(
             args.publication_id,
             args.campaign_id,
-            feature_set,
         )
         
         print("\n" + "=" * 60)
-        print("PREDICTION RESULT")
+        print("PREDICTION RESULT (with imputation)")
         print("=" * 60)
         print(f"Publication ID: {result.publication_id}")
         print(f"Campaign ID: {result.campaign_id}")
         print(f"Predicted CTR: {result.predicted_ctr:.6f}")
         print(f"Model Version: {result.model_version}")
-        
-    except ValueError as e:
-        print(f"Error: {e}")
-        sys.exit(1)
+        if pub_imputed:
+            print("Note: Publisher features were imputed (unseen publication_id)")
+        if camp_imputed:
+            print("Note: Campaign features were imputed (unseen campaign_id)")
+    else:
+        try:
+            result = pipeline.predict(
+                args.publication_id,
+                args.campaign_id,
+                feature_set,
+            )
+            
+            print("\n" + "=" * 60)
+            print("PREDICTION RESULT")
+            print("=" * 60)
+            print(f"Publication ID: {result.publication_id}")
+            print(f"Campaign ID: {result.campaign_id}")
+            print(f"Predicted CTR: {result.predicted_ctr:.6f}")
+            print(f"Model Version: {result.model_version}")
+            
+        except ValueError as e:
+            print(f"Error: {e}")
+            print("Tip: Use --use-imputation to make predictions for unseen combinations")
+            sys.exit(1)
 
 
 def evaluate(args: argparse.Namespace) -> None:
@@ -174,6 +194,7 @@ def main() -> None:
     predict_parser.add_argument("--publication-id", type=str, required=True, help="Publication ID")
     predict_parser.add_argument("--campaign-id", type=str, required=True, help="Campaign ID")
     predict_parser.add_argument("--feature-set", type=str, help="Feature set name (overrides config)")
+    predict_parser.add_argument("--use-imputation", action="store_true", help="Use imputation for unseen publication/campaign IDs")
     
     # Evaluation subcommand
     eval_parser = subparsers.add_parser("evaluate", help="Evaluate model")

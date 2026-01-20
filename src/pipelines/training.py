@@ -19,7 +19,11 @@ from src.domain.protocols import IMetric
 from src.features.feature_engineering import (
     CTRFeatureEngineer,
     create_temporal_split,
-    prepare_model_data
+    prepare_model_data,
+    PUBLISHER_NUMERICAL_FEATURES,
+    PUBLISHER_CATEGORICAL_FEATURES,
+    CAMPAIGN_NUMERICAL_FEATURES,
+    CAMPAIGN_CATEGORICAL_FEATURES,
 )
 from src.feature_store.feature_store import ParquetFeatureStore
 from src.metrics.metrics import compute_all_metrics, create_standard_metrics, compute_baseline_metrics
@@ -161,13 +165,55 @@ class TrainingPipeline:
         fe_path = self.output_dir / "feature_engineer.pkl"
         self._feature_engineer.save(fe_path)
         
-        # Save features to feature store
+        # Save features to feature store (combined for backward compatibility)
         self._feature_store.save_features(
             train_features, "train_features", feature_columns
         )
         self._feature_store.save_features(
             test_features, "test_features", feature_columns
         )
+        
+        # Save publisher and campaign features separately for imputation
+        self._save_entity_features(train_features)
+
+    def _save_entity_features(self, train_features: pl.DataFrame) -> None:
+        """Save publisher and campaign features separately with imputation statistics."""
+        # Get feature columns by entity type
+        pub_numerical, pub_categorical = self._feature_engineer.get_publisher_feature_columns()
+        camp_numerical, camp_categorical = self._feature_engineer.get_campaign_feature_columns()
+        
+        all_pub_features = pub_numerical + pub_categorical
+        all_camp_features = camp_numerical + camp_categorical
+        
+        # Filter to only columns that exist in the DataFrame
+        pub_cols_present = [c for c in all_pub_features if c in train_features.columns]
+        camp_cols_present = [c for c in all_camp_features if c in train_features.columns]
+        
+        # Save publisher features
+        self._feature_store.save_publisher_features(
+            train_features, pub_cols_present
+        )
+        
+        # Save campaign features
+        self._feature_store.save_campaign_features(
+            train_features, camp_cols_present
+        )
+        
+        # Compute and save imputation statistics for publishers
+        pub_num_present = [c for c in pub_numerical if c in train_features.columns]
+        pub_cat_present = [c for c in pub_categorical if c in train_features.columns]
+        pub_imputation = self._feature_store.compute_imputation_statistics(
+            train_features, pub_num_present, pub_cat_present
+        )
+        self._feature_store.save_imputation_statistics(pub_imputation, "publisher")
+        
+        # Compute and save imputation statistics for campaigns
+        camp_num_present = [c for c in camp_numerical if c in train_features.columns]
+        camp_cat_present = [c for c in camp_categorical if c in train_features.columns]
+        camp_imputation = self._feature_store.compute_imputation_statistics(
+            train_features, camp_num_present, camp_cat_present
+        )
+        self._feature_store.save_imputation_statistics(camp_imputation, "campaign")
     
     def get_model(self) -> XGBoostEnsembleModel | None:
         """Return the trained model."""
