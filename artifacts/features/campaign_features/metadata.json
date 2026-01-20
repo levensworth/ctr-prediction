@@ -1,0 +1,29 @@
+{
+  "feature_columns": [
+    "campaign_ctr_mean",
+    "campaign_ctr_std",
+    "campaign_ctr_count",
+    "campaign_weighted_ctr",
+    "num_income_targets",
+    "num_age_targets",
+    "gender_no_pref",
+    "gender_balanced",
+    "gender_male",
+    "gender_female",
+    "gender_unknown",
+    "item_product",
+    "item_service",
+    "item_newsletter",
+    "item_knowledge",
+    "item_event",
+    "item_other",
+    "item_unknown",
+    "income_range_1",
+    "income_range_2",
+    "income_range_3",
+    "income_range_4",
+    "income_range_5"
+  ],
+  "n_rows": 635,
+  "n_columns": 24
+}

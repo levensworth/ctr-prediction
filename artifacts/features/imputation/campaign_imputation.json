@@ -1,0 +1,29 @@
+{
+  "numerical_means": {
+    "campaign_ctr_mean": 0.0022034711170712397,
+    "campaign_ctr_std": 0.0075089302178029125,
+    "campaign_ctr_count": 34.362859938628745,
+    "campaign_weighted_ctr": 0.00019051751177051412,
+    "num_income_targets": 1.9465994052878084,
+    "num_age_targets": 0.7682237485868461
+  },
+  "categorical_modes": {
+    "gender_no_pref": 0,
+    "gender_balanced": 0,
+    "gender_male": 0,
+    "gender_female": 0,
+    "gender_unknown": 0,
+    "item_product": 0,
+    "item_service": 0,
+    "item_newsletter": 0,
+    "item_knowledge": 0,
+    "item_event": 0,
+    "item_other": 0,
+    "item_unknown": 0,
+    "income_range_1": 1,
+    "income_range_2": 1,
+    "income_range_3": 0,
+    "income_range_4": 0,
+    "income_range_5": 0
+  }
+}
